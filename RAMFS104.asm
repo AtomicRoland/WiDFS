@@ -23,7 +23,6 @@ lastDrv		= &CF				;Last drive accessed
 vdip		= &FCF8
 vdipS		= &FCF9
 pageL		= &FCFF
-pageH		= &FCFE
 
 \ Other Vectors
 
@@ -79,6 +78,7 @@ ORG &8000                      \--- terugzetten op &8000
 		EQUB	&10			;Version number 1.0x
 		EQUS	"WiDFS"
 		BRK
+.versionstring
 	IF VER=100
 		EQUS	"1.00 (03 Aug 2009)"
 	ENDIF
@@ -92,7 +92,7 @@ ORG &8000                      \--- terugzetten op &8000
 		EQUS	"1.03 (02 May 2016)"
 	ENDIF
 	IF VER=104
-		EQUS	"1.04 (30 May 2016)"
+		EQUS	"1.04.1"
 	ENDIF
 .cpyMsg		BRK
 		EQUS	"(C)M. Haysman, J.G. Harston, R. Leurs"
@@ -1537,7 +1537,7 @@ ORG &8000                      \--- terugzetten op &8000
 		EQUB	&02
 	ENDIF
 
-		EQUS	"RAMTEST"
+		EQUS	"PRTEST"
 		EQUB	HI(RAMtest-1)
 		EQUB	LO(RAMtest-1)
 		EQUB	&00
@@ -1567,7 +1567,7 @@ ORG &8000                      \--- terugzetten op &8000
 \
 \************************************************
 \
-.cmdTabH	EQUS	"RFS"
+.cmdTabH	EQUS	"WIDFS"
 		EQUB	HI(helpRFS-1)
 		EQUB	LO(helpRFS-1)
 		EQUB	&00
@@ -4704,29 +4704,21 @@ ORG &8000                      \--- terugzetten op &8000
 \************************************************
 \** *HELP Command
 \
-.x99BD		PHA
+.x99BD	PHA
 		STX zpm0
 		STY zpm1
 		JSR prtStr
 		EQUB	&0D
 		EQUS	"WiFi Disc Filing System "
-	IF VER=100
-		EQUS	"1.00"
-	ENDIF
-	IF VER=101
-		EQUS	"1.01"
-	ENDIF
-	IF VER=102
-		EQUS	"1.02"
-	ENDIF
-	IF VER=103
-		EQUS	"1.03"
-	ENDIF
-	IF VER=104
-		EQUS	"1.04"
-	ENDIF
-		EQUB	&0D
-		NOP
+;		NOP
+		LDY #0
+.x99BDver
+        LDA versionstring,Y
+        JSR osasci
+        INY
+        CMP #&00
+        BNE x99BDver
+
 		JSR setSCR
 		LDY #&00
 		
@@ -4738,12 +4730,13 @@ ORG &8000                      \--- terugzetten op &8000
 		BNE help_L1		
 		LDA &FD8F
 		BEQ dt_skip
+		JSR osnewl
 		LDA #&83
 		JSR prtChrA
 		JSR prtStr
-		EQUS	" DiskTrap Active"
+		EQUS	" (DiscTrap Active)"
 		EQUB	&0D
-		NOP
+;		NOP
 		
 .dt_skip	LDX zpm0
 		LDY zpm1
@@ -4769,7 +4762,7 @@ ORG &8000                      \--- terugzetten op &8000
 .helpUTILS	TYA
 		LDX #cmdTabU-cmdTabD-1		;Offset in table where UTILS commands start-1
 		LDY #&0A			;Number of commands in table to print
-		BNE x99BD
+		JMP x99BD           ;This was a BNE but that's a little too far now
 \
 \
 \
@@ -5679,15 +5672,16 @@ ORG &8000                      \--- terugzetten op &8000
 		
 .testRAM	STA zpm0			;Store pattern for test
 		JSR prtStr
-		EQUB	" : Writing Page 0"
+		EQUB	" : Writing Bank 0"
 		NOP
 		LDA #&00
 		STA zpm2
 		STA zpm3
+		jsr set_bank_0          ;Select first memory bank
+
 .test_L1	LDA #&08			;Back the cursor off one space
 		JSR prtChrA
 		LDA zpm3
-		STA pageH
 		JSR prtHexA4bit
 		BIT &FF
 		BPL test_J1
@@ -5703,9 +5697,12 @@ ORG &8000                      \--- terugzetten op &8000
 		BNE test_L2
 		INC zpm3
 		LDY zpm3
-		CPY #&10
-		BNE test_L1
-		
+		CPY #&02                ;There are only two banks here
+		BEQ test_readback
+		JSR set_bank_1          ;Repeat for the second bank
+		JMP test_L1
+
+.test_readback
 		LDA #&08
 		LDX #&0E
 .test_L4	JSR prtChrA			;Back the cursor off 14 spaces
@@ -5717,10 +5714,11 @@ ORG &8000                      \--- terugzetten op &8000
 		LDA #&00
 		STA zpm2
 		STA zpm3
+        JSR set_bank_0          ;Switch back to bank 0 for reading
+
 .test_L5	LDA #&08
 		JSR prtChrA
 		LDA zpm3
-		STA pageH
 		JSR prtHexA4bit
 		BIT &FF
 		BPL test_J2
@@ -5737,8 +5735,10 @@ ORG &8000                      \--- terugzetten op &8000
 		BNE test_L6
 		INC zpm3
 		LDY zpm3
-		CPY #&10			;Loop for &FFFFF bytes
-		BNE test_L5
+		CPY #&02			;Loop for &FFFFF bytes
+		BEQ test_RET
+		jsr set_bank_1      ;Select second bank
+		jmp test_L5
 		
 .test_RET	LDA #&08
 		LDX #&0F			;Back the cursor off 15 spaces
@@ -6069,21 +6069,21 @@ ORG &8000                      \--- terugzetten op &8000
 \(&C4)=Sector
 \
 .readRAMblock
-\        jsr save_context                   \ I thought that the context switch was necessary for Manic Miner
+;        jsr save_context                   \ I thought that the context switch was necessary for Manic Miner
         jmp wifi_readRAMblock
-\        jsr restore_context                \ but it seems no to be so :-)  Excluding it saves some time.
-        lda &C1 : jsr prtHexA8bit
-        lda &C0 : jsr prtHexA8bit
-        lda &BF : jsr prtHexA8bit
-        lda &BE : jsr prtHexA8bit
-        jsr osnewl
-        lda &C3 : jsr prtHexA8bit
-        lda &C2 : jsr prtHexA8bit
-        jsr osnewl
-        lda &C5 : jsr prtHexA8bit
-        lda &C4 : jsr prtHexA8bit
-        jsr osnewl
-        rts
+;        jmp restore_context                \ but it seems no to be so :-)  Excluding it saves some time.
+;        lda &C1 : jsr prtHexA8bit
+;        lda &C0 : jsr prtHexA8bit
+;        lda &BF : jsr prtHexA8bit
+;        lda &BE : jsr prtHexA8bit
+;        jsr osnewl
+;        lda &C3 : jsr prtHexA8bit
+;        lda &C2 : jsr prtHexA8bit
+;        jsr osnewl
+;        lda &C5 : jsr prtHexA8bit
+;        lda &C4 : jsr prtHexA8bit
+;        jsr osnewl
+;        rts
 
 
         JSR saveBEC5
@@ -6180,7 +6180,10 @@ ORG &8000                      \--- terugzetten op &8000
 \(&C2)=Length
 \(&C4)=Sector	
 .writeRAMblock
+;        jsr save_context
         jmp wifi_writeRAMblock
+;        jmp restore_context
+
         JSR saveBEC5
 		LDA #&00			;Command for Tube Write
 		JSR setTubeXfer			;Do the Tube setup

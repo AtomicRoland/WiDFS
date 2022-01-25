@@ -31,9 +31,9 @@ paramblock_ptr=zp+8     ; 2 byte parameter block pointer to zero page
 paramblock = zp+10      ; 4 byte parameter block
 
 errorspace=&100         ; temp error routine
-savespace=&A00          ; some space to temporary save data
-workspace=&A10          ; temp work space
-strbuf=&A20             ; string buffer for WiFi commands
+savespace=&100          ; some space to temporary save data
+workspace=&110          ; temp work space
+strbuf=&120             ; string buffer for WiFi commands
 size=workspace+3        ; size of search string, 1 byte
 httpstatus=workspace+4  ; pointer to http status code, 1 byte
 writestatus=workspace+5 ; write status from server, 1 byte

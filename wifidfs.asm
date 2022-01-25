@@ -45,7 +45,7 @@ include "errors.asm"
     inx                     ; increment drive number
     cpx #4                  ; all drives printed?
     bne cmd_mount_list_l1   ; no, then do the next one
-    jmp cmd_mount_end
+    rts
 
 .CMD_MOUNT
     cld
@@ -60,6 +60,7 @@ include "errors.asm"
 .cmd_mount_l1
     pha                     ; save drive number
     jsr set_bank_1
+;    jsr save_context        ; save page &A00
     tax                     ; update mount table, x holds the drive number
     lda #0                  ; unmount drive...
     sta pagereg             ; select page 0 in paged ram
@@ -81,10 +82,12 @@ include "errors.asm"
     sta mounttab,x          ; set drive status
 
 .cmd_mount_end
+ ;   jmp restore_context     ; restore page &A00
     rts
 
 .CMD_UMOUNT
     cld
+;    jsr save_context
     jsr set_bank_1
     jsr skipspace1          ; initialize string with space separater
     cmp #&0D
@@ -1500,6 +1503,10 @@ include "errors.asm"
     pha
     txa
     pha
+    tya
+    pha
+    jsr prtStr
+    EQUS "Save context",&0D,&0A,&EA
     jsr save_bank_nr
     lda #_CONTEXT_
     sta pagereg
@@ -1511,7 +1518,9 @@ include "errors.asm"
     bne save_context_l1
     jsr restore_bank_nr
     pla
-    txa
+    tay
+    pla
+    tax
     pla
     rts
 
@@ -1519,6 +1528,10 @@ include "errors.asm"
     pha
     txa
     pha
+    tya
+    pha
+    jsr prtStr
+    EQUS "Restore context",&0D,&0A,&EA
     jsr save_bank_nr
     lda #_CONTEXT_
     sta pagereg
@@ -1530,7 +1543,9 @@ include "errors.asm"
     bne restore_context_l1
     jsr restore_bank_nr
     pla
-    txa
+    tay
+    pla
+    tax
     pla
     rts
 
